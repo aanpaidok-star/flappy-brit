@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Flappy Bird - Clone</title>
+<title>Flappy Dragon</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -76,11 +76,11 @@
 </style>
 </head>
 <body>
-  <h1>🐤 Flappy Bird</h1>
+  <h1>🐉 Flappy Dragon</h1>
   <div id="gameContainer">
     <canvas id="game" width="360" height="520"></canvas>
     <div id="overlay">
-      <h2>Flappy Bird</h2>
+      <h2>Flappy Dragon</h2>
       <p>Klik, tekan Spasi, atau tap layar untuk terbang. Hindari pipa!</p>
       <button id="startBtn">Mulai Main</button>
     </div>
@@ -97,11 +97,17 @@ const bestScoreEl = document.getElementById('bestScore');
 const W = canvas.width, H = canvas.height;
 const GROUND_Y = H - 46;
 
-let bird, pipes, score, best, frame, gameOver, started, gravity, jumpPower;
+let bird, pipes, score, best, frame, gameOver, started, gravity, jumpPower, level;
 let pipeSpeed, spawnInterval, soundIntensity, currentGap;
 
 // ===== Tema visual: burung & background berganti tiap SCORE_PER_THEME skor =====
 const SCORE_PER_THEME = 5;
+
+// ===== Level: naik otomatis tiap SCORE_PER_LEVEL skor =====
+const SCORE_PER_LEVEL = 3;
+function getLevel() {
+  return Math.floor(score / SCORE_PER_LEVEL) + 1;
+}
 const THEMES = [
   { name: 'Pagi',    skyTop: '#4ec0ca', skyBottom: '#a8e6cf', bird: '#ffd700', wing: '#ff9800', cloud: 'rgba(255,255,255,0.5)' },
   { name: 'Senja',   skyTop: '#ff7e5f', skyBottom: '#feb47b', bird: '#ff5252', wing: '#c62828', cloud: 'rgba(255,255,255,0.35)' },
@@ -178,8 +184,15 @@ function sfxThemeChange() {
   setTimeout(() => playTone({ freq: 990, duration: 0.15, type: 'sine', volume: 0.2 }), 90);
   setTimeout(() => playTone({ freq: 1320, duration: 0.18, type: 'triangle', volume: 0.18 }), 180);
 }
+function sfxLevelUp() {
+  playTone({ freq: 523, duration: 0.1, type: 'square', volume: 0.22 });
+  setTimeout(() => playTone({ freq: 659, duration: 0.1, type: 'square', volume: 0.22 }), 80);
+  setTimeout(() => playTone({ freq: 784, duration: 0.1, type: 'square', volume: 0.22 }), 160);
+  setTimeout(() => playTone({ freq: 1047, duration: 0.22, type: 'triangle', volume: 0.22 }), 240);
+}
 
 let themeToast = null;
+let levelToast = null;
 let particles = [];
 
 function spawnParticles(x, y, color) {
@@ -237,11 +250,13 @@ function resetGame() {
   jumpPower = -7.6;
   gameOver = false;
   started = false;
+  level = 1;
   pipeSpeed = 2.8;
   spawnInterval = 92;
   soundIntensity = 0;
   currentGap = 140;
   themeToast = null;
+  levelToast = null;
   particles = [];
 }
 
@@ -302,6 +317,12 @@ function update() {
         themeToast = { text: getTheme().name, life: 90 };
         sfxThemeChange();
       }
+      const newLevel = getLevel();
+      if (newLevel > level) {
+        level = newLevel;
+        levelToast = { text: level, life: 100 };
+        sfxLevelUp();
+      }
     }
 
     if (p.x + p.w < -10) pipes.splice(i, 1);
@@ -333,7 +354,7 @@ function endGame() {
     saveBest(best);
     bestScoreEl.textContent = best;
   }
-  showOverlay('Game Over', `Skor kamu: ${score}`, 'Main Lagi');
+  showOverlay('Game Over', `Skor kamu: ${score} · Level ${level}`, 'Main Lagi');
 }
 
 function showOverlay(title, text, btnText) {
@@ -458,49 +479,175 @@ function drawBird() {
   const theme = getTheme();
   ctx.save();
   ctx.translate(bird.x, bird.y);
-  const angle = Math.max(-0.5, Math.min(0.9, bird.vy * 0.06));
+  const angle = Math.max(-0.4, Math.min(0.7, bird.vy * 0.05));
   ctx.rotate(angle);
 
-  // Badan dengan gradasi
-  const bodyGrad = ctx.createRadialGradient(-4, -4, 2, 0, 0, bird.r + 2);
+  const wingFlap = started && !gameOver ? Math.sin(frame * 0.35) * 6 : 0;
+  const speedKick = Math.min(Math.abs(bird.vy), 9);
+  const bodyGrad = ctx.createRadialGradient(-3, -5, 2, 0, 0, bird.r + 6);
   bodyGrad.addColorStop(0, '#ffffff');
-  bodyGrad.addColorStop(0.35, theme.bird);
+  bodyGrad.addColorStop(0.4, theme.bird);
   bodyGrad.addColorStop(1, theme.wing);
-  ctx.fillStyle = bodyGrad;
+
+  // ===== EKOR: tipis & bertahap (bukan blob bulat), biar jelas beda dari badan =====
+  const wiggle = Math.sin(frame * 0.22) * (4 + speedKick * 1.6) + bird.vy * 0.6;
+  const tailPts = [{ x: -bird.r + 2, y: 3 }];
+  for (let i = 1; i <= 4; i++) {
+    tailPts.push({
+      x: -bird.r + 2 - i * 8,
+      y: 3 + wiggle * (i / 4) + Math.sin(frame * 0.22 + i * 1.3) * (2 + i)
+    });
+  }
+  ctx.strokeStyle = theme.wing;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  for (let i = 0; i < tailPts.length - 1; i++) {
+    ctx.lineWidth = Math.max(7 - i * 1.6, 2);
+    ctx.beginPath();
+    ctx.moveTo(tailPts[i].x, tailPts[i].y);
+    ctx.lineTo(tailPts[i + 1].x, tailPts[i + 1].y);
+    ctx.stroke();
+  }
+  // Ujung ekor bentuk hati/panah kecil khas naga
+  const tEnd = tailPts[tailPts.length - 1], tPrev = tailPts[tailPts.length - 2];
+  const tipAngle = Math.atan2(tEnd.y - tPrev.y, tEnd.x - tPrev.x);
+  ctx.save();
+  ctx.translate(tEnd.x, tEnd.y);
+  ctx.rotate(tipAngle);
+  ctx.fillStyle = theme.wing;
   ctx.beginPath();
-  ctx.arc(0, 0, bird.r, 0, Math.PI*2);
+  ctx.moveTo(3, 0);
+  ctx.quadraticCurveTo(-2, -7, -9, -2);
+  ctx.quadraticCurveTo(-4, 0, -9, 2);
+  ctx.quadraticCurveTo(-2, 7, 3, 0);
+  ctx.fill();
+  ctx.restore();
+
+  // ===== SAYAP KELELAWAR (mengepak lewat rotasi di pangkal sayap) =====
+  const shoulderX = -3, shoulderY = -bird.r + 5;
+  // wingFlap berayun -6..6 -> ubah jadi sudut kepak yang jelas: terangkat tinggi lalu turun
+  const flapAngle = -0.55 + (wingFlap / 6) * 0.55;
+  ctx.save();
+  ctx.translate(shoulderX, shoulderY);
+  ctx.rotate(flapAngle);
+
+  ctx.fillStyle = theme.wing;
+  ctx.globalAlpha = 0.94;
+  ctx.beginPath();
+  ctx.moveTo(0, 0);
+  ctx.lineTo(-9, -9);
+  ctx.quadraticCurveTo(-14, -6, -17, -2);
+  ctx.quadraticCurveTo(-12, 0, -15, 5);
+  ctx.quadraticCurveTo(-9, 3, -6, 7);
+  ctx.quadraticCurveTo(-3, 4, 0, 6);
+  ctx.closePath();
   ctx.fill();
   ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+
+  // Tulang/rangka sayap (garis dari pangkal ke ujung tiap "jari"), biar kepakannya kebaca jelas
+  ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+  ctx.lineWidth = 0.9;
+  ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(-9, -9);
+  ctx.moveTo(0, 0); ctx.lineTo(-17, -2);
+  ctx.moveTo(0, 0); ctx.lineTo(-15, 5);
+  ctx.stroke();
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+
+  // ===== KAKI KECIL (chibi, nempel di bawah badan) =====
+  ctx.fillStyle = theme.wing;
+  [-5, 5].forEach(dx => {
+    ctx.beginPath();
+    ctx.ellipse(dx, bird.r - 3, 3.2, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // ===== BADAN (oval gemuk, jelas beda dari ekor tipis) =====
+  ctx.fillStyle = bodyGrad;
+  ctx.beginPath();
+  ctx.ellipse(-2, 1, bird.r - 1, bird.r - 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
   ctx.lineWidth = 1;
   ctx.stroke();
 
-  // Sayap mengepak (animasi naik-turun berdasarkan waktu)
-  const wingFlap = started && !gameOver ? Math.sin(frame * 0.35) * 6 : 0;
+  // Duri kecil di punggung badan
   ctx.fillStyle = theme.wing;
+  [-6, 0, 6].forEach(sx => {
+    ctx.beginPath();
+    ctx.moveTo(sx - 2.5, -bird.r + 5);
+    ctx.lineTo(sx, -bird.r - 3);
+    ctx.lineTo(sx + 2.5, -bird.r + 5);
+    ctx.fill();
+  });
+
+  // Perut lebih terang (belly)
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
   ctx.beginPath();
-  ctx.ellipse(-3, 2 + wingFlap * 0.3, 8, 5 + Math.abs(wingFlap) * 0.3, angle * 0.3, 0, Math.PI*2);
+  ctx.ellipse(-2, bird.r - 5, bird.r - 5, 4, 0, 0, Math.PI * 2);
   ctx.fill();
 
-  // Paruh
-  ctx.fillStyle = '#ff9800';
+  // ===== LEHER (biar kepala keliatan "terpisah", bukan nyatu jadi satu blob) =====
+  ctx.fillStyle = theme.bird;
   ctx.beginPath();
-  ctx.moveTo(bird.r - 2, -2);
-  ctx.lineTo(bird.r + 11, 1);
-  ctx.lineTo(bird.r - 2, 6);
+  ctx.ellipse(bird.r - 2, -1, 6, 5, -0.3, 0, Math.PI * 2);
   ctx.fill();
 
-  // Mata
+  // ===== KEPALA =====
+  const hx = bird.r + 6, hy = -3;
+  ctx.fillStyle = theme.bird;
+  ctx.beginPath();
+  ctx.arc(hx, hy, 8, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Moncong tumpul menonjol ke depan
+  ctx.fillStyle = theme.bird;
+  ctx.beginPath();
+  ctx.ellipse(hx + 8, hy + 2, 5.5, 4, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.beginPath();
+  ctx.arc(hx + 12, hy + 1.5, 0.8, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Tanduk kecil melengkung
+  ctx.strokeStyle = theme.wing;
+  ctx.lineWidth = 3;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(hx - 3, hy - 7);
+  ctx.quadraticCurveTo(hx - 6, hy - 14, hx - 2, hy - 15);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(hx + 3, hy - 7);
+  ctx.quadraticCurveTo(hx + 1, hy - 15, hx + 5, hy - 15.5);
+  ctx.stroke();
+
+  // Mata besar & imut
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.arc(4, -4, 4.5, 0, Math.PI*2);
+  ctx.arc(hx + 2, hy - 1, 5, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#1a1a2e';
   ctx.beginPath();
-  ctx.arc(5.5, -4, 2.2, 0, Math.PI*2);
+  ctx.arc(hx + 3.5, hy - 1, 2.6, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#fff';
   ctx.beginPath();
-  ctx.arc(6.2, -5, 0.7, 0, Math.PI*2);
+  ctx.arc(hx + 4.4, hy - 2, 0.9, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Pipi merona
+  ctx.fillStyle = 'rgba(255,120,120,0.35)';
+  ctx.beginPath();
+  ctx.arc(hx - 1, hy + 4, 2.3, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.restore();
@@ -518,55 +665,9 @@ function drawScore() {
   ctx.strokeText(score, W/2, 60);
   ctx.fillText(score, W/2, 60);
   ctx.shadowBlur = 0;
-}
 
-function drawThemeToast() {
-  if (!themeToast || themeToast.life <= 0) return;
-  const alpha = Math.min(1, themeToast.life / 30);
+  // Badge level kecil pojok kiri atas
   ctx.save();
-  ctx.globalAlpha = alpha;
-  ctx.fillStyle = '#fff';
-  ctx.font = 'bold 18px Arial';
-  ctx.textAlign = 'center';
-  ctx.shadowColor = 'rgba(0,0,0,0.6)';
-  ctx.shadowBlur = 6;
-  ctx.fillText('✨ ' + themeToast.text + ' ✨', W/2, 110);
-  ctx.restore();
-  themeToast.life--;
-}
-
-function draw() {
-  ctx.clearRect(0, 0, W, H);
-  drawSky();
-  drawBackgroundDetails();
-  drawPipes();
-  drawParticles();
-  drawBird();
-  drawGround();
-  if (started) drawScore();
-  drawThemeToast();
-}
-
-function loop() {
-  update();
-  draw();
-  requestAnimationFrame(loop);
-}
-
-resetGame();
-draw();
-requestAnimationFrame(loop);
-
-document.addEventListener('keydown', (e) => {
-  if (e.code === 'Space') { e.preventDefault(); flap(); }
-});
-canvas.addEventListener('mousedown', flap);
-canvas.addEventListener('touchstart', (e) => { e.preventDefault(); flap(); }, { passive: false });
-
-startBtn.addEventListener('click', () => {
-  overlay.style.display = 'none';
-  resetGame();
-});
-</script>
-</body>
-</html>
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 14px Arial';
+  const label = 'Lv.' +
